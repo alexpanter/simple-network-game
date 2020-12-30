@@ -1,0 +1,31 @@
+#version 330 core
+
+layout (points) in;
+layout (triangle_strip, max_vertices = 6) out;
+
+uniform vec4 cubeData;
+
+void main()
+{
+    vec2 cubePosition = cubeData.xy;
+    vec2 cubeSize = cubeData.zw;
+    vec2 offset = cubePosition + 0.5f * cubeSize;
+
+    // top-left triangle
+    gl_Position = vec4(cubePosition.x - offset.x, cubePosition.y - offset.y, 0.0f, 1.0f);
+    EmitVertex();
+    gl_Position = vec4(cubePosition.x - offset.x, cubePosition.y + offset.y, 0.0f, 1.0f);
+    EmitVertex();
+    gl_Position = vec4(cubePosition.x + offset.x, cubePosition.y + offset.y, 0.0f, 1.0f);
+    EmitVertex();
+    EndPrimitive();
+
+    // bottom-right triangle
+    gl_Position = vec4(cubePosition.x - offset.x, cubePosition.y - offset.y, 0.0f, 1.0f);
+    EmitVertex();
+    gl_Position = vec4(cubePosition.x + offset.x, cubePosition.y + offset.y, 0.0f, 1.0f);
+    EmitVertex();
+    gl_Position = vec4(cubePosition.x + offset.x, cubePosition.y - offset.y, 0.0f, 1.0f);
+    EmitVertex();
+    EndPrimitive();
+}

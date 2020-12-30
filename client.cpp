@@ -15,6 +15,7 @@
 
 #include <atomic>
 #include "window.hpp"
+#include "shaders.hpp"
 
 //
 // GAME SYNCHRONIZATION
@@ -129,11 +130,39 @@ int main(int argc, char **argv)
 	void* thread_args = nullptr;
 	Pthread_create(&server_response_tid, nullptr, ServerResponseThread, thread_args);
 
-	// Initialize window and other graphics objects
-	window = new Windows::WindowedWindow("Client", 200, Windows::ASPECT_RATIO_1_1);
+	// Initialize window
+	char window_title[128];
+	sprintf(window_title, "Client[connfd=%i]", clientfd);
+	window = new Windows::WindowedWindow(window_title, 300, Windows::ASPECT_RATIO_1_1);
 	window->SetClearBits(GL_COLOR_BUFFER_BIT);
 	window->SetClearColor(0.2f, 0.3f, 0.5f);
 	window->SetKeyCallback(key_callback);
+
+	// Initialize shader
+	Shaders::ShaderWrapper cubeShader("shaders|cube_shader", Shaders::SHADERS_VGF);
+	cubeShader.Activate();
+	glm::vec4 cubeData(0.0f, 0.0f, 0.2f, 0.2f);
+	cubeShader.SetUniform("cubeData", const_cast<glm::vec4*>(&cubeData));
+	cubeShader.Deactivate();
+
+	// Initialize player cube
+	GLfloat vertices[] = {
+		0.0f, 0.0f
+	};
+	GLuint VBO, VAO;
+
+	glGenVertexArrays(1, &VAO);
+	glBindVertexArray(VAO);
+
+    glGenBuffers(1, &VBO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+
+    // position attribute
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat), (GLvoid*)0);
+    glEnableVertexAttribArray(0);
+
 
 	// Game loop
 	while (window->IsRunning())
@@ -142,6 +171,10 @@ int main(int argc, char **argv)
 		window->ClearWindow();
 
 		// render game
+		cubeShader.Activate();
+		glBindVertexArray(VAO);
+		glDrawArrays(GL_POINTS, 0, 6);
+		cubeShader.Deactivate();
 
 		window->SwapBuffers();
 	}
@@ -149,6 +182,8 @@ int main(int argc, char **argv)
 	void* thread_return_status;
 	Pthread_join(server_response_tid, &thread_return_status);
 
+	glDeleteVertexArrays(1, &VAO);
+    glDeleteBuffers(1, &VBO);
 	delete window;
     Close(clientfd);
     exit(0);
