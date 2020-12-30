@@ -33,9 +33,11 @@ public:
 		assert(mMessageLength < Protocol::kMaxMessageLength);
 		mpMessage = (char*)malloc(sizeof(char) * Protocol::kMaxMessageLength);
 		strcpy(mpMessage, message);
+		printf("Constructing RespondMessage \"%s\"\n", mpMessage);
 	}
 	~RespondMessage()
 	{
+		printf("Deleting RespondMessage \"%s\"\n", mpMessage);
 		delete mpMessage;
 	}
 	char* GetMessage() { return mpMessage; }
@@ -112,9 +114,7 @@ void* ClientRespondThread(void* clientPtr)
 	{
 		pthread_mutex_lock(&client->client_mutex);
 		while (client->client_connected && client->message_queue.empty()) {
-			printf("respond thread for client[%i] before wait\n", client->connfd);
 			pthread_cond_wait(&client_cond_respond, &client->client_mutex);
-			printf("respond thread for client[%i] after wait\n", client->connfd);
 		}
 		printf("respond thread awoken by broadcast, send to client[%i]\n", client->connfd);
 		if (!client->client_connected) {
@@ -123,8 +123,8 @@ void* ClientRespondThread(void* clientPtr)
 		}
 		auto msg = client->message_queue.front();
 		client->message_queue.pop();
-		printf("respond thread for client[%i] will send message \"%s\"\n",
-			   client->connfd, msg->GetMessage());
+		printf("respond thread for client[%i] will send message \"%s\" with length %lu\n",
+			   client->connfd, msg->GetMessage(), msg->GetMessageLength());
 
 		// send message to client
 		ssize_t write_status = rio_writen(client->connfd, msg->GetMessage(),
@@ -134,9 +134,12 @@ void* ClientRespondThread(void* clientPtr)
 			printf("Some error occurred: Could not write to client!");
 			error_tolerance--;
 		}
+		printf("respond thread for client[%i] has sent message \"%s\" with length %lu\n",
+			   client->connfd, msg->GetMessage(), msg->GetMessageLength());
 
 		pthread_mutex_unlock(&client->client_mutex);
 	}
+	printf("Terminating respond thread for client[%i]\n", client->connfd);
 	return nullptr;
 }
 
@@ -216,19 +219,19 @@ void* ClientReceiveThread(void* clientPtr)
 			response = std::make_shared<RespondMessage>("INVALID_COMMAND\n");
 		}
 
+		// Pushing server response to each client connection's message queue,
+		// then signals each client's respond thread to send the message to its client.
 		pthread_mutex_lock(&connected_clients_mutex);
 		for (auto& client_ptr : connected_clients)
 		{
 			pthread_mutex_lock(&client_ptr->client_mutex);
-			printf("Sending message \"%s\" to client[%i]\n", response->GetMessage(),
-				   client_ptr->connfd);
 			client_ptr->message_queue.push(response);
 			pthread_mutex_unlock(&client_ptr->client_mutex);
 		}
 		pthread_cond_broadcast(&client_cond_respond);
 		pthread_mutex_unlock(&connected_clients_mutex);
 
-		memset(buf, 0, read_status);
+		memset(buf, 0, read_status); // TODO: Probably not required.
 	}
 
 	client->client_connected.store(false);
@@ -293,6 +296,7 @@ int main(int argc, char **argv)
 		void* thread_return_status;
 		Pthread_join(client_ptr->receive_tid, &thread_return_status);
 		Pthread_join(client_ptr->respond_tid, &thread_return_status);
+		Close(client_ptr->connfd);
 
 		delete client_ptr;
 	}
