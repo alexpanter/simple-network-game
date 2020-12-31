@@ -123,10 +123,41 @@ void* ServerResponseThread(void* /*args*/)
 
 			pthread_mutex_unlock(&game_mutex);
 		}
+		else if (sscanf(response, "SRV_RES_NEW_PLAYER %u %f %f\n",
+						&player_id, &moveX, &moveY) == 3)
+		{
+			printf("Add another player with player_id=%u\n", player_id);
+			pthread_mutex_lock(&game_mutex);
+
+			auto it = players.find(player_id);
+			if (it == players.end())
+			{
+				players[player_id] = new ClientPlayerData();
+
+				players[player_id]->VBO_index = next_VBO_index;
+				players[player_id]->player.is_alive = true;
+				players[player_id]->player.posX = moveX;
+				players[player_id]->player.posY = moveY;
+				players[player_id]->player.player_id = player_id;
+
+				player_vertex_data[next_VBO_index] = glm::vec2(moveX, moveY);
+				should_buffer_data.store(true);
+
+				next_VBO_index++;
+				render_count++;
+			}
+			else
+			{
+				printf("ERROR: Cannot add another new player - player_id %u already exists!\n",
+					   player_id);
+			}
+
+			pthread_mutex_unlock(&game_mutex);
+		}
 		else if (sscanf(response, "SRV_RES_YOUR_NEW_PLAYER %u %f %f\n",
 						&player_id, &moveX, &moveY) == 3)
 		{
-			fflush(stdout);
+			printf("Add my player with player_id=%u\n", player_id);
 			pthread_mutex_lock(&game_mutex);
 
 			auto it = players.find(player_id);

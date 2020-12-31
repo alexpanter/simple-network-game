@@ -184,6 +184,38 @@ void* ClientReceiveThread(void* clientPtr)
 
 			if (game->TryStartGame())
 			{
+				// send each player information about all other players,
+				// so each player knows about the other players in the game
+				pthread_mutex_lock(&connected_clients_mutex);
+				for (auto& client_ptr : connected_clients)
+				{
+					pthread_mutex_lock(&client_ptr->client_mutex);
+
+					char outbuf[Protocol::kMaxMessageLength];
+					Protocol::CreateNewPlayerResponse
+						(outbuf,
+						 client_ptr->client_player.player_id,
+						 client_ptr->client_player.posX,
+						 client_ptr->client_player.posY
+						 );
+					auto inner_response = std::make_shared<RespondMessage>(outbuf);
+
+					for (auto& client_inner_ptr : connected_clients)
+					{
+						// need not send client information about itself
+						if (client_inner_ptr->client_player.player_id ==
+						    client_ptr->client_player.player_id) continue;
+
+						client_inner_ptr->message_queue.push(inner_response);
+					}
+
+					pthread_mutex_unlock(&client_ptr->client_mutex);
+				}
+				// pthread_cond_broadcast(&client_cond_respond);
+				pthread_mutex_unlock(&connected_clients_mutex);
+
+
+				// send start message to all players
 				printf("ACTION: Game can be started!\n");
 				response = std::make_shared<RespondMessage>
 					(Protocol::SERVER_RESPONSE_START);
