@@ -4,6 +4,8 @@
 
 #include "csapp.h"
 #include "protocol.hpp"
+#include "game.hpp"
+
 #include <cassert>
 #include <vector>
 #include <queue>
@@ -12,15 +14,6 @@
 #include <cstring>
 #include <atomic>
 
-//
-// PLAYER INFO
-struct Player
-{
-	float posX;
-	float posY;
-	bool is_alive;
-	bool is_ready;
-};
 
 //
 // CLIENT INFO
@@ -33,11 +26,9 @@ public:
 		assert(mMessageLength < Protocol::kMaxMessageLength);
 		mpMessage = (char*)malloc(sizeof(char) * Protocol::kMaxMessageLength);
 		strcpy(mpMessage, message);
-		printf("Constructing RespondMessage \"%s\"\n", mpMessage);
 	}
 	~RespondMessage()
 	{
-		printf("Deleting RespondMessage \"%s\"\n", mpMessage);
 		delete mpMessage;
 	}
 	char* GetMessage() { return mpMessage; }
@@ -65,10 +56,13 @@ struct Client
 
 //
 // CLIENT SETUP AND SYNCHRONIZATION
-constexpr int kMaxClients = 4;
 std::vector<Client*> connected_clients;
 pthread_mutex_t connected_clients_mutex;
 pthread_cond_t client_cond_respond;
+
+//
+// GAME DATA
+Game* game;
 
 
 //
@@ -78,53 +72,35 @@ void InitServer()
 	int status = pthread_mutex_init(&connected_clients_mutex, nullptr);
 	assert(status == 0);
 }
+void InitGame()
+{
+	game = new Game();
+}
 
 
 //
-// HANDLE CLIENT ACTIONS
-bool AddPlayer(Client* client)
-{
-	// pthread_mutex_lock(&mutex);
-	// if (players.size() >= kMaxPlayers)
-	// {
-	// 	pthread_mutex_unlock(&mutex);
-	// 	return false;
-	// }
-	// auto it = players.emplace_back();
-	// it.posX = it.posY = 0.0f;
-	// it.is_alive = true;
-	// it.is_ready = false;
-	// pthread_mutex_unlock(&mutex);
-	return true;
-}
-
-void MovePlayer(Player* player, float dirX, float dirY)
-{
-	// pthread_mutex_lock(&mutex);
-	// pthread_mutex_unlock(&mutex);
-}
-
-
+// HANDLE CLIENTS
 void* ClientRespondThread(void* clientPtr)
 {
 	Client* client = (Client*)clientPtr;
 	int error_tolerance = 5; // max # connection errors that may occur
 	printf("Starting respond thread for client[%i]\n", client->connfd);
+
 	while (client->client_connected && error_tolerance > 0)
 	{
 		pthread_mutex_lock(&client->client_mutex);
 		while (client->client_connected && client->message_queue.empty()) {
 			pthread_cond_wait(&client_cond_respond, &client->client_mutex);
 		}
-		printf("respond thread awoken by broadcast, send to client[%i]\n", client->connfd);
+		//printf("respond thread awoken by broadcast, send to client[%i]\n", client->connfd);
 		if (!client->client_connected) {
 			pthread_mutex_unlock(&client->client_mutex);
 			break;
 		}
 		auto msg = client->message_queue.front();
 		client->message_queue.pop();
-		printf("respond thread for client[%i] will send message \"%s\" with length %lu\n",
-			   client->connfd, msg->GetMessage(), msg->GetMessageLength());
+		// printf("respond thread for client[%i] will send message \"%s\" with length %lu\n",
+		// 	   client->connfd, msg->GetMessage(), msg->GetMessageLength());
 
 		// send message to client
 		ssize_t write_status = rio_writen(client->connfd, msg->GetMessage(),
@@ -134,11 +110,12 @@ void* ClientRespondThread(void* clientPtr)
 			printf("Some error occurred: Could not write to client!");
 			error_tolerance--;
 		}
-		printf("respond thread for client[%i] has sent message \"%s\" with length %lu\n",
-			   client->connfd, msg->GetMessage(), msg->GetMessageLength());
+		// printf("respond thread for client[%i] has sent message \"%s\" with length %lu\n",
+		// 	   client->connfd, msg->GetMessage(), msg->GetMessageLength());
 
 		pthread_mutex_unlock(&client->client_mutex);
 	}
+
 	printf("Terminating respond thread for client[%i]\n", client->connfd);
 	return nullptr;
 }
@@ -146,6 +123,8 @@ void* ClientRespondThread(void* clientPtr)
 void* ClientReceiveThread(void* clientPtr)
 {
 	Client* client = (Client*)clientPtr;
+	printf("Starting respond thread for client[%i]\n", client->connfd);
+
 	int error_tolerance = 5; // max # connection errors that may occur
 
 	// storage buffer for received client requests
@@ -153,7 +132,6 @@ void* ClientReceiveThread(void* clientPtr)
 	memset(buf, 0, Protocol::kMaxMessageLength);
 	rio_t rio;
 	rio_readinitb(&rio, client->connfd);
-
 
 	while(error_tolerance > 0)
 	{
@@ -164,15 +142,14 @@ void* ClientReceiveThread(void* clientPtr)
 			error_tolerance--;
 			continue;
 		}
-		printf("Received message \"%s\" from client[%i]\n", buf, client->connfd);
 
 		// check for empty messages
-		int only_whitespace = 1;
+		bool only_whitespace = true;
 		for(int i = 0; i < read_status; i++)
 		{
 			if((buf[i] != '\n') && (buf[i] != '\0') && (buf[i] != ' ') && (buf[i] != '\r'))
 			{
-				only_whitespace = 0;
+				only_whitespace = false;
 				break;
 			}
 		}
@@ -184,57 +161,123 @@ void* ClientReceiveThread(void* clientPtr)
 			continue;
 		}
 
-		// for proper string matching we remove trailing newline
-		if(buf[read_status] == '\n') buf[read_status] = '\0';
-		if(buf[read_status - 1] == '\n') buf[read_status - 1] = '\0';
-		printf("Converted to \"%s\"\n", buf);
-
 		// parsing client request
 		float moveX, moveY;
 		std::shared_ptr<RespondMessage> response = nullptr;
+		bool broadcast_response = false;
 
-		if (strcmp(buf, "START") == 0)
+		if (strcmp(buf, Protocol::CLIENT_REQUEST_START) == 0)
 		{
 			printf("client[%i] requested start\n", client->connfd);
-			response = std::make_shared<RespondMessage>("GAME_START\n");
+			game->PlayerSetReady(&client->client_player);
+
+			if (game->TryStartGame())
+			{
+				printf("ACTION: Game can be started!\n");
+				response = std::make_shared<RespondMessage>
+					(Protocol::SERVER_RESPONSE_START);
+				broadcast_response = true;
+			}
+			else
+			{
+				printf("ACTION: Game can not be started!\n");
+			}
 		}
-		else if (strcmp(buf, "PAUSE") == 0)
+		else if (strcmp(buf, Protocol::CLIENT_REQUEST_TOGGLE_PAUSE) == 0)
 		{
-			printf("client[%i] requested pause\n", client->connfd);
-			response = std::make_shared<RespondMessage>("GAME_PAUSE\n");
+			printf("client[%i] requested pause/unpause\n", client->connfd);
+			bool take_action = game->PauseUnpauseGame(&client->client_player);
+
+			if (take_action && game->GetGameState() == GameStateType::running)
+			{
+				printf("ACTION: Game will be paused!\n");
+				response = std::make_shared<RespondMessage>
+					(Protocol::SERVER_RESPONSE_PAUSE);
+			}
+			else if (take_action && game->GetGameState() == GameStateType::paused)
+			{
+				printf("ACTION: Game will be unpaused!\n");
+				response = std::make_shared<RespondMessage>
+					(Protocol::SERVER_RESPONSE_UNPAUSE);
+			}
+			else
+			{
+				printf("ACTION: No pause/unpause action will be taken!\n");
+			}
+			broadcast_response = take_action;
 		}
-		else if (strcmp(buf, "QUIT") == 0)
+		else if (strcmp(buf, Protocol::CLIENT_REQUEST_QUIT) == 0)
 		{
 			printf("client[%i] requested quit\n", client->connfd);
-			response = std::make_shared<RespondMessage>("GAME_QUIT\n");
+			bool take_action = game->PlayerQuit(&client->client_player);
+
+			if (take_action)
+			{
+				printf("ACTION: Client will quit!\n");
+				response = std::make_shared<RespondMessage>
+					(Protocol::SERVER_RESPONSE_END_GAME);
+				broadcast_response = take_action;
+			}
+			else
+			{
+				printf("ACTION: Client will not quit!\n");
+			}
 		}
-		else if (sscanf(buf, "MOVE %f %f", &moveX, &moveY) == 2)
+		else if (sscanf(buf, "CLT_REQ_MOVE %f %f", &moveX, &moveY) == 2)
 		{
-			printf("client[%i] requested move (%f, %f)\n", client->connfd, moveX, moveY);
-			response = std::make_shared<RespondMessage>("PLAYER_MOVE\n");
+			printf("client[%i] requested move (%f, %f)\n",
+				   client->connfd, moveX, moveY);
+			bool should_move = game->MovePlayer(&client->client_player, moveX, moveY);
+
+			if (should_move)
+			{
+				char outbuf[Protocol::kMaxMessageLength];
+				Protocol::CreateMoveResponse(outbuf,
+											 client->client_player.player_id,
+											 client->client_player.posX,
+											 client->client_player.posY);
+
+				response = std::make_shared<RespondMessage>(outbuf);
+				broadcast_response = should_move;
+				printf("ACTION: Client will move!\n");
+			}
+			else
+			{
+				printf("ACTION: Client will not move!\n");
+			}
 		}
 		else
 		{
 			printf("client[%i]: unrecongnized command: \"%s\"\n", client->connfd, buf);
-			response = std::make_shared<RespondMessage>("INVALID_COMMAND\n");
+			printf("ACTION: No action will be taken!\n");
 		}
 
-		// Pushing server response to each client connection's message queue,
-		// then signals each client's respond thread to send the message to its client.
-		pthread_mutex_lock(&connected_clients_mutex);
-		for (auto& client_ptr : connected_clients)
+		if (broadcast_response)
 		{
-			pthread_mutex_lock(&client_ptr->client_mutex);
-			client_ptr->message_queue.push(response);
-			pthread_mutex_unlock(&client_ptr->client_mutex);
+			// Pushing server response to each client connection's message queue,
+			// then signals each client's respond thread to send the message to
+			// its client.
+			pthread_mutex_lock(&connected_clients_mutex);
+			for (auto& client_ptr : connected_clients)
+			{
+				pthread_mutex_lock(&client_ptr->client_mutex);
+				client_ptr->message_queue.push(response);
+				pthread_mutex_unlock(&client_ptr->client_mutex);
+			}
+			pthread_cond_broadcast(&client_cond_respond);
+			pthread_mutex_unlock(&connected_clients_mutex);
 		}
-		pthread_cond_broadcast(&client_cond_respond);
-		pthread_mutex_unlock(&connected_clients_mutex);
 
 		memset(buf, 0, read_status); // TODO: Probably not required.
 	}
 
+	printf("Terminating receive thread for client[%i]\n", client->connfd);
 	client->client_connected.store(false);
+
+	pthread_mutex_lock(&connected_clients_mutex);
+	pthread_cond_broadcast(&client_cond_respond);
+	pthread_mutex_unlock(&connected_clients_mutex);
+
 	return NULL;
 }
 
@@ -251,6 +294,7 @@ int main(int argc, char **argv)
 
 	int listenfd = Open_listenfd(argv[1]); // TODO: error checking
 	InitServer();
+	InitGame();
 	printf("Server listening on port %s...\n", argv[1]);
 
 	// Initial loop - wait for all players to join
@@ -266,6 +310,7 @@ int main(int argc, char **argv)
 		new_client->connfd = new_connfd;
 		new_client->client_connected.store(true);
 		connected_clients.push_back(new_client);
+		game->AddPlayer(&new_client->client_player);
 
 		// Spawn two threads for each connected client, one for receiving requests
 		// and one for sending back responses.
@@ -302,5 +347,6 @@ int main(int argc, char **argv)
 	}
 
 	printf("Closing server socket...");
+	delete game;
 	Close(listenfd);
 }

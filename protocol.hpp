@@ -16,34 +16,24 @@ namespace Protocol
 {
 	constexpr unsigned int kMaxMessageLength = 128;
 
-	enum class ClientRequestType
-	{
-		start,
-		pause,
-		quit,
-		move,
-	};
+	inline char CLIENT_REQUEST_START[] = "CLT_REQ_START\n";
+	inline char CLIENT_REQUEST_TOGGLE_PAUSE[] = "CLT_REQ_TOGGLE_PAUSE\n";
+	inline char CLIENT_REQUEST_QUIT[] = "CLT_REQ_QUIT\n";
 
-	enum class ServerResponseType
+	void CreateMoveRequest(char dest[kMaxMessageLength], float dirX, float dirY)
 	{
-		invalid_command,
-		player_move,
-		player_destroyed,
-		player_win,
-		game_start,
-		game_pause,
-		game_quit
-	};
+		sprintf(dest, "CLT_REQ_MOVE %f %f\n", dirX, dirY);
+	}
 
-	struct ClientRequest
-	{
-		ClientRequestType Type;
-		char* Content;
-	};
 
-	struct ServerResponse
+	inline char SERVER_RESPONSE_START[] = "SRV_RES_START\n";
+	inline char SERVER_RESPONSE_PAUSE[] = "SRV_RES_PAUSE\n";
+	inline char SERVER_RESPONSE_UNPAUSE[] = "SRV_RES_UNPAUSE\n";
+	inline char SERVER_RESPONSE_END_GAME[] = "SRV_RES_END_GAME\n";
+
+	void CreateMoveResponse(char dest[kMaxMessageLength], unsigned int player_id,
+							float newposX, float newposY)
 	{
-		ServerResponseType Type;
-		char* Content;
-	};
+		sprintf(dest, "SRV_RES_MOVE %u %f %f\n", player_id, newposX, newposY);
+	}
 }

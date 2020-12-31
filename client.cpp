@@ -63,26 +63,26 @@ void key_callback(GLFWwindow* /*window*/, int key, int /*scancode*/, int action,
         case GLFW_KEY_ESCAPE:
             window->CloseWindow();
 			game_running.store(false);
-			strcpy(request, "QUIT\n");
+			strcpy(request, Protocol::CLIENT_REQUEST_QUIT);
             break;
 		case GLFW_KEY_S:
-			strcpy(request, "START\n");
+			strcpy(request, Protocol::CLIENT_REQUEST_START);
 			break;
 		case GLFW_KEY_P:
-			strcpy(request, "PAUSE\n");
+			strcpy(request, Protocol::CLIENT_REQUEST_TOGGLE_PAUSE);
 			break;
 
 		case GLFW_KEY_UP:
-			strcpy(request, "MOVE 0.1 0.0\n");
+			Protocol::CreateMoveRequest(request, 0.1f, 0.0f);
 			break;
 		case GLFW_KEY_DOWN:
-			strcpy(request, "MOVE -0.1 0.0\n");
+			Protocol::CreateMoveRequest(request, -0.1f, 0.0f);
 			break;
 		case GLFW_KEY_LEFT:
-			strcpy(request, "MOVE 0.0 -0.1\n");
+			Protocol::CreateMoveRequest(request, 0.0f, -0.1f);
 			break;
 		case GLFW_KEY_RIGHT:
-			strcpy(request, "MOVE 0.0 0.1\n");
+			Protocol::CreateMoveRequest(request, 0.0f, 0.1f);
 			break;
 
         default:

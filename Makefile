@@ -8,10 +8,13 @@ all: csapp.o client server
 csapp.o: csapp.cpp csapp.h
 	$(GCC) -c $< -o $@
 
+game.o: game.cpp game.hpp
+	$(GCC) -c $< -o $@ $(LD_FLAGS)
+
 client: client.cpp csapp.o $(GRAPHICS_LIB)
 	$(GCC) $< *.o -o $@ $(GL_LD_FLAGS) $(LD_FLAGS)
 
-server: server.cpp csapp.o
+server: server.cpp csapp.o game.o
 	$(GCC) $(CFLAGS) $< *.o -o $@ $(LD_FLAGS)
 
 zip: ../src.zip
