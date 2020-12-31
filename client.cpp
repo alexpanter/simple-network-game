@@ -31,7 +31,8 @@ struct ClientPlayerData
 	Player player;
 	GLuint VBO_index; // render index in vertex buffer
 };
-GLfloat player_vertex_data[GameSettings::kMaxPlayers];
+glm::vec2* player_vertex_data;
+volatile std::atomic_bool should_buffer_data;
 
 pthread_mutex_t game_mutex;
 std::unordered_map<unsigned int, ClientPlayerData*> players;
@@ -52,6 +53,8 @@ volatile std::atomic_bool game_running;
 // DRAWING DATA
 Windows::WindowedWindow* window;
 const std::string window_main_title = "Client | ";
+Shaders::ShaderWrapper* cubeShader;
+
 
 void* ServerResponseThread(void* /*args*/)
 {
@@ -71,12 +74,15 @@ void* ServerResponseThread(void* /*args*/)
 		if (read_status < 1)
 		{
 			printf("Failed reading from server!\n");
+			continue;
 		}
+		printf("Server response: %s", response);
 
 		if (strcmp(response, Protocol::SERVER_RESPONSE_START) == 0)
 		{
 			window->SetTitle(window_main_title + "game_running");
 			game_state = GameStateType::running;
+			render_count++;
 		}
 		else if (strcmp(response, Protocol::SERVER_RESPONSE_PAUSE) == 0)
 		{
@@ -97,6 +103,7 @@ void* ServerResponseThread(void* /*args*/)
 		else if (sscanf(response, "SRV_RES_MOVE %u %f %f\n",
 						&player_id, &moveX, &moveY) == 3)
 		{
+			printf("moving player...\n");
 			pthread_mutex_lock(&game_mutex);
 
 			auto it = players.find(player_id);
@@ -104,7 +111,9 @@ void* ServerResponseThread(void* /*args*/)
 			{
 				it->second->player.posX = moveX;
 				it->second->player.posY = moveY;
-				// TODO: glBufferSubData();
+				player_vertex_data[it->second->VBO_index] = glm::vec2(moveX, moveY);
+				should_buffer_data.store(true);
+				render_count++;
 			}
 			else
 			{
@@ -117,13 +126,12 @@ void* ServerResponseThread(void* /*args*/)
 		else if (sscanf(response, "SRV_RES_YOUR_NEW_PLAYER %u %f %f\n",
 						&player_id, &moveX, &moveY) == 3)
 		{
-			printf("will insert %u into map\n", player_id);
+			fflush(stdout);
 			pthread_mutex_lock(&game_mutex);
 
 			auto it = players.find(player_id);
 			if (it == players.end())
 			{
-				printf("player_id does not exist already - adding it!\n");
 				my_player_id = player_id;
 				players[player_id] = new ClientPlayerData();
 
@@ -133,25 +141,11 @@ void* ServerResponseThread(void* /*args*/)
 				players[player_id]->player.posY = moveY;
 				players[player_id]->player.player_id = player_id;
 
-				int start_index = next_VBO_index * 4;
-				player_vertex_data[start_index] = moveX;
-				player_vertex_data[start_index + 1] = moveY;
-				player_vertex_data[start_index + 2] = 0.2f;
-				player_vertex_data[start_index + 3] = 0.2f;
-
-				glBindVertexArray(VAO);
-				// glBufferSubData(target buffer object type, offset in bytes,
-				//                 size in bytes, pointer to data);
-				glBufferSubData(GL_ARRAY_BUFFER,
-								4 * sizeof(GLfloat) * next_VBO_index,
-								sizeof(GLfloat) * 4,
-								(void*)(&player_vertex_data[start_index]));
-				glBindVertexArray(0);
+				player_vertex_data[next_VBO_index] = glm::vec2(moveX, moveY);
+				should_buffer_data.store(true);
 
 				next_VBO_index++;
 				render_count++;
-				printf("Map now contains %lu items with key player_id=%u\n",
-					   players.count(player_id), player_id);
 			}
 			else
 			{
@@ -161,8 +155,6 @@ void* ServerResponseThread(void* /*args*/)
 
 			pthread_mutex_unlock(&game_mutex);
 		}
-
-        printf("Server response: \"%s\"", response);
 	}
 
 	printf("Terminating server response thread\n");
@@ -183,6 +175,7 @@ void key_callback(GLFWwindow* /*window*/, int key, int /*scancode*/, int action,
 			strcpy(request, Protocol::CLIENT_REQUEST_QUIT);
             break;
 		case GLFW_KEY_S:
+			window->SetTitle(window_main_title + "ready - waiting for other players..");
 			strcpy(request, Protocol::CLIENT_REQUEST_START);
 			break;
 		case GLFW_KEY_P:
@@ -190,16 +183,16 @@ void key_callback(GLFWwindow* /*window*/, int key, int /*scancode*/, int action,
 			break;
 
 		case GLFW_KEY_UP:
-			Protocol::CreateMoveRequest(request, 0.1f, 0.0f);
+			Protocol::CreateMoveRequest(request, 0.0f, 0.1f);
 			break;
 		case GLFW_KEY_DOWN:
-			Protocol::CreateMoveRequest(request, -0.1f, 0.0f);
-			break;
-		case GLFW_KEY_LEFT:
 			Protocol::CreateMoveRequest(request, 0.0f, -0.1f);
 			break;
+		case GLFW_KEY_LEFT:
+			Protocol::CreateMoveRequest(request, -0.1f, 0.0f);
+			break;
 		case GLFW_KEY_RIGHT:
-			Protocol::CreateMoveRequest(request, 0.0f, 0.1f);
+			Protocol::CreateMoveRequest(request, 0.1f, 0.0f);
 			break;
 
         default:
@@ -249,46 +242,49 @@ int main(int argc, char **argv)
 	window->SetKeyCallback(key_callback);
 
 
-	// Initialize client
-	Rio_readinitb(&response_rio, clientfd);
-	int mutex_init_status = pthread_mutex_init(&game_mutex, nullptr);
-	assert(mutex_init_status == 0);
-	game_running.store(true);
-	game_state = GameStateType::not_started;
-	render_count.store(1);
-
-	void* thread_args = nullptr;
-	Pthread_create(&server_response_tid, nullptr, ServerResponseThread, thread_args);
-
-
 	// Initialize shader
-	Shaders::ShaderWrapper cubeShader("shaders|cube_shader", Shaders::SHADERS_VGF);
-	cubeShader.Activate();
-	glm::vec4 cubeData(0.0f, 0.0f, 0.2f, 0.2f);
-	cubeShader.SetUniform("cubeData", const_cast<glm::vec4*>(&cubeData));
-	cubeShader.Deactivate();
+	cubeShader = new Shaders::ShaderWrapper("shaders|cube_shader", Shaders::SHADERS_VGF);
+	cubeShader->Activate();
+	//glm::vec4 cubeData(0.0f, 0.0f, 0.2f, 0.2f);
+	//cubeShader->SetUniform("cubeDataUniform", const_cast<glm::vec4*>(&cubeData));
+	cubeShader->Deactivate();
 
 
 	// Initialize player cube
+	player_vertex_data = new glm::vec2[GameSettings::kMaxPlayers];
+
 	glGenVertexArrays(1, &VAO);
 	glBindVertexArray(VAO);
 
     glGenBuffers(1, &VBO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
 
-    glBufferData(GL_ARRAY_BUFFER, sizeof(player_vertex_data),
-				 player_vertex_data, GL_STATIC_DRAW);
+	for (int i = 0; i < GameSettings::kMaxPlayers; i++)
+	{
+		player_vertex_data[i] = glm::vec2(0.0f, 0.0f);
+	}
 
-    // position attribute
-    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat), (GLvoid*)0);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec2) * GameSettings::kMaxPlayers,
+				 player_vertex_data, GL_DYNAMIC_DRAW);
+
+    // position and size, packed together in a vec4 attribute
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(glm::vec2), (GLvoid*)0);
     glEnableVertexAttribArray(0);
 
-	// size attribute
-	glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat),
-						  (GLvoid*)(sizeof(GLfloat) * 2));
-    glEnableVertexAttribArray(1);
-
 	glBindVertexArray(0);
+
+
+	// Initialize game state and server receive thread
+	Rio_readinitb(&response_rio, clientfd);
+	int mutex_init_status = pthread_mutex_init(&game_mutex, nullptr);
+	assert(mutex_init_status == 0);
+	game_running.store(true);
+	game_state = GameStateType::not_started;
+	render_count.store(1);
+	should_buffer_data.store(false);
+
+	void* thread_args = nullptr;
+	Pthread_create(&server_response_tid, nullptr, ServerResponseThread, thread_args);
 
 
 	// Game loop
@@ -301,12 +297,42 @@ int main(int argc, char **argv)
 		{
 			window->ClearWindow();
 
+			// check if vertex data was updated
+			if (should_buffer_data)
+			{
+				should_buffer_data.store(false); // TODO: race condition, use counter!
+
+				printf("Buffering data:\n");
+				for (int i = 0; i < GameSettings::kMaxPlayers; i++)
+				{
+					printf("(%f, %f)\n", player_vertex_data[i].x, player_vertex_data[i].y);
+				}
+
+				glBindVertexArray(VAO);
+				glBindBuffer(GL_ARRAY_BUFFER, VBO);
+				glFlush();
+
+				// glBufferSubData(target buffer object type, offset in bytes,
+				//                 size in bytes, pointer to data);
+				glBufferSubData(GL_ARRAY_BUFFER, 0,
+								sizeof(glm::vec2) * GameSettings::kMaxPlayers,
+								player_vertex_data);
+
+				// position and size, packed together in a vec4 attribute
+				glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(glm::vec2),
+				                      (GLvoid*)0);
+				glEnableVertexAttribArray(0);
+
+				glBindVertexArray(0);
+			}
+
 			// render game
-			cubeShader.Activate();
+			cubeShader->Activate();
 			glBindVertexArray(VAO);
+			printf("will render %u points\n", next_VBO_index);
 			glDrawArrays(GL_POINTS, 0, next_VBO_index);
 			glBindVertexArray(0);
-			cubeShader.Deactivate();
+			cubeShader->Deactivate();
 
 			window->SwapBuffers();
 
@@ -319,6 +345,8 @@ int main(int argc, char **argv)
 
 	glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);
+	delete player_vertex_data;
+	delete cubeShader;
 	delete window;
     Close(clientfd);
     exit(0);

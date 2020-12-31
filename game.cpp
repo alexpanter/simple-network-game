@@ -51,9 +51,24 @@ bool Game::AddPlayer(Player* player)
 
 	player->is_alive = true;
 	player->is_ready = false;
+
 	// TODO: Create proper player positions
-	player->posX = 0.0f;
-	player->posY = 0.0f;
+	if (player->player_id == 1)
+	{
+		player->posX = -0.5f;
+		player->posY = 0.5f;
+	}
+	else if (player->player_id == 2)
+	{
+		player->posX = 0.5f;
+		player->posY = 0.5f;
+	}
+	else
+	{
+		printf("Game::AddPlayer(): player_id not implemented - setting position to (0,0)\n");
+		player->posX = 0.0f;
+		player->posY = 0.0f;
+	}
 	return true;
 }
 

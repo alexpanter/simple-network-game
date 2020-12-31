@@ -3,13 +3,20 @@
 layout (points) in;
 layout (triangle_strip, max_vertices = 6) out;
 
-uniform vec4 cubeData;
+//flat in vec4 cubeDataInput[];
+
+//uniform vec4 cubeDataUniform;
 
 void main()
 {
-    vec2 cubePosition = cubeData.xy;
-    vec2 cubeSize = cubeData.zw;
-    vec2 offset = cubePosition + 0.5f * cubeSize;
+    //vec4 cubeData = cubeDataUniform;
+    //vec4 cubeData = gl_in[0].gl_Position;
+    //vec4 cubeData = cubeDataInput[0];
+    vec4 cubeData = gl_in[0].gl_Position;
+
+    vec2 cubePosition = cubeData.xy + vec2(0.5f, 0.0f);
+    vec2 cubeSize = vec2(0.2f, 0.2f);
+    vec2 offset = 0.5f * cubeSize;
 
     // top-left triangle
     gl_Position = vec4(cubePosition.x - offset.x, cubePosition.y - offset.y, 0.0f, 1.0f);
