@@ -3,14 +3,6 @@
 #include <cstdio>
 #include <cassert>
 
-unsigned int Player::id_generator = 1;
-
-Player::Player()
-{
-	player_id = id_generator++;
-	printf("new player with id=%u\n", player_id);
-}
-
 
 Game::Game()
 {
@@ -54,7 +46,7 @@ bool Game::AddPlayer(Player* player)
 {
 	ScopedLock lock(&mGameMutex);
 	if (mGameState != GameStateType::not_started) return false;
-	if (mPlayers.size() >= mkMaxPlayers) return false;
+	if (mPlayers.size() >= GameSettings::kMaxPlayers) return false;
 	mPlayers.push_back(player);
 
 	player->is_alive = true;
@@ -68,6 +60,8 @@ bool Game::AddPlayer(Player* player)
 bool Game::TryStartGame()
 {
 	ScopedLock lock(&mGameMutex);
+	if (mGameState == GameStateType::running) return false;
+
 	bool may_start = true;
 	for (auto& player : mPlayers)
 	{
@@ -93,13 +87,19 @@ bool Game::PauseUnpauseGame(Player* player)
 
 	if (mGameState == GameStateType::running)
 	{
+		printf("Game running --> setting to pause!\n");
 		mGameState = GameStateType::paused;
 		mPausedByPlayerId = player->player_id;
 		return true;
 	}
 	else if (mGameState == GameStateType::paused)
 	{
-		if (player->player_id != mPausedByPlayerId) return false;
+		if (player->player_id != mPausedByPlayerId)
+		{
+			printf("Game paused --> cannot unpause by another player!\n");
+			return false;
+		}
+		printf("Game paused --> setting to running!\n");
 
 		mGameState = GameStateType::running;
 		mPausedByPlayerId = 0;

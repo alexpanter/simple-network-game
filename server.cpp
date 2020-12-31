@@ -133,6 +133,17 @@ void* ClientReceiveThread(void* clientPtr)
 	rio_t rio;
 	rio_readinitb(&rio, client->connfd);
 
+	// send initial player data
+	pthread_mutex_lock(&client->client_mutex);
+	Protocol::CreateYourNewPlayerResponse(buf, client->client_player.player_id,
+										  client->client_player.posX,
+										  client->client_player.posY);
+	auto new_data = std::make_shared<RespondMessage>(buf);
+	client->message_queue.push(new_data);
+	memset(buf, 0, Protocol::kMaxMessageLength);
+	pthread_mutex_unlock(&client->client_mutex);
+
+
 	while(error_tolerance > 0)
 	{
 		ssize_t read_status = rio_readlineb(&rio, buf, Protocol::kMaxMessageLength);
@@ -188,17 +199,20 @@ void* ClientReceiveThread(void* clientPtr)
 			printf("client[%i] requested pause/unpause\n", client->connfd);
 			bool take_action = game->PauseUnpauseGame(&client->client_player);
 
+			// NOTE: PauseUnpauseGame changes game state, so we match against
+			// the inverted state, ie. respond unpause command to clients if
+			// state is now paused
 			if (take_action && game->GetGameState() == GameStateType::running)
-			{
-				printf("ACTION: Game will be paused!\n");
-				response = std::make_shared<RespondMessage>
-					(Protocol::SERVER_RESPONSE_PAUSE);
-			}
-			else if (take_action && game->GetGameState() == GameStateType::paused)
 			{
 				printf("ACTION: Game will be unpaused!\n");
 				response = std::make_shared<RespondMessage>
 					(Protocol::SERVER_RESPONSE_UNPAUSE);
+			}
+			else if (take_action && game->GetGameState() == GameStateType::paused)
+			{
+				printf("ACTION: Game will be paused!\n");
+				response = std::make_shared<RespondMessage>
+					(Protocol::SERVER_RESPONSE_PAUSE);
 			}
 			else
 			{

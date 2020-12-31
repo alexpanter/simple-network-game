@@ -2,28 +2,9 @@
 
 #include <pthread.h>
 #include <vector>
-
-class Player
-{
-public:
-	float posX;
-	float posY;
-	bool is_alive;
-	bool is_ready;
-	unsigned int player_id;
-
-	static unsigned int id_generator;
-	Player();
-};
-
-
-enum class GameStateType
-{
-	not_started,
-	running,
-	paused,
-	ended
-};
+#include "player.hpp"
+#include "game_state.hpp"
+#include "game_settings.hpp"
 
 
 class Game
@@ -38,6 +19,7 @@ public:
 
 	// will set the game state to "running" and return `true`,
 	// if all players are ready.
+	// Returns false if the game is already running
 	bool TryStartGame();
 
 	bool AddPlayer(Player* player);
@@ -62,9 +44,8 @@ private:
 	pthread_mutex_t mGameMutex;
 
 	std::vector<Player*> mPlayers;
-	static constexpr int mkMaxPlayers = 4;
 
 	GameStateType mGameState;
 
-	unsigned int mPausedByPlayerId;
+	PlayerId mPausedByPlayerId;
 };

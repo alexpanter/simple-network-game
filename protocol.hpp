@@ -11,6 +11,7 @@
  */
 
 #include <cstdio>
+#include "player.hpp"
 
 namespace Protocol
 {
@@ -31,9 +32,21 @@ namespace Protocol
 	inline char SERVER_RESPONSE_UNPAUSE[] = "SRV_RES_UNPAUSE\n";
 	inline char SERVER_RESPONSE_END_GAME[] = "SRV_RES_END_GAME\n";
 
-	void CreateMoveResponse(char dest[kMaxMessageLength], unsigned int player_id,
+	void CreateMoveResponse(char dest[kMaxMessageLength], PlayerId player_id,
 							float newposX, float newposY)
 	{
 		sprintf(dest, "SRV_RES_MOVE %u %f %f\n", player_id, newposX, newposY);
+	}
+
+	void CreateNewPlayerResponse(char dest[kMaxMessageLength],
+								 PlayerId player_id, float posX, float posY)
+	{
+		sprintf(dest, "SRV_RES_NEW_PLAYER %u %f %f\n", player_id, posX, posY);
+	}
+
+	void CreateYourNewPlayerResponse(char dest[kMaxMessageLength],
+								  PlayerId player_id, float posX, float posY)
+	{
+		sprintf(dest, "SRV_RES_YOUR_NEW_PLAYER %u %f %f\n", player_id, posX, posY);
 	}
 }
