@@ -1,12 +1,12 @@
 #version 330 core
 
 layout (location = 0) in vec2 vertexData;
+layout (location = 1) in vec3 vertexColor;
 
-//flat out vec4 cubeDataInput;
+out vec3 g_Color;
 
 void main()
 {
-    //gl_Position = vec4(0.0f, 0.0f, 0.0f, 1.0f);
     gl_Position = vec4(vertexData, 0.0f, 1.0f);
-    //cubeDataInput = vertexData;
+    g_Color = vertexColor;
 }

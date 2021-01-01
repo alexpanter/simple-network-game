@@ -31,7 +31,10 @@ struct ClientPlayerData
 	Player player;
 	GLuint VBO_index; // render index in vertex buffer
 };
-glm::vec2* player_vertex_data;
+// vertex information will be
+// (posX, posY, colorR, colorG, colorB)
+const int kFloatsPerPlayer = 5;
+GLfloat player_vertex_data[GameSettings::kMaxPlayers * kFloatsPerPlayer];
 volatile std::atomic_bool should_buffer_data;
 
 pthread_mutex_t game_mutex;
@@ -65,6 +68,7 @@ void* ServerResponseThread(void* /*args*/)
 	// intermediate variables for storing server response data
 	PlayerId player_id = 0;
 	float moveX, moveY;
+	float colorR, colorG, colorB;
 
 	while (game_running && listen_to_server)
 	{
@@ -111,7 +115,9 @@ void* ServerResponseThread(void* /*args*/)
 			{
 				it->second->player.posX = moveX;
 				it->second->player.posY = moveY;
-				player_vertex_data[it->second->VBO_index] = glm::vec2(moveX, moveY);
+				const int index = it->second->VBO_index * kFloatsPerPlayer;
+				player_vertex_data[index] = moveX;
+				player_vertex_data[index+1] = moveY;
 				should_buffer_data.store(true);
 				render_count++;
 			}
@@ -133,14 +139,20 @@ void* ServerResponseThread(void* /*args*/)
 			if (it == players.end())
 			{
 				players[player_id] = new ClientPlayerData();
+				ClientPlayerData* player = players[player_id];
 
-				players[player_id]->VBO_index = next_VBO_index;
-				players[player_id]->player.is_alive = true;
-				players[player_id]->player.posX = moveX;
-				players[player_id]->player.posY = moveY;
-				players[player_id]->player.player_id = player_id;
+				player->VBO_index = next_VBO_index;
+				player->player.is_alive = true;
+				player->player.posX = moveX;
+				player->player.posY = moveY;
+				player->player.player_id = player_id;
 
-				player_vertex_data[next_VBO_index] = glm::vec2(moveX, moveY);
+				const int index = player->VBO_index * kFloatsPerPlayer;
+				player_vertex_data[index] = moveX;
+				player_vertex_data[index+1] = moveY;
+				player_vertex_data[index+2] = 0.8f;
+				player_vertex_data[index+3] = 0.25f;
+				player_vertex_data[index+4] = 0.3f;
 				should_buffer_data.store(true);
 
 				next_VBO_index++;
@@ -154,8 +166,9 @@ void* ServerResponseThread(void* /*args*/)
 
 			pthread_mutex_unlock(&game_mutex);
 		}
-		else if (sscanf(response, "SRV_RES_YOUR_NEW_PLAYER %u %f %f\n",
-						&player_id, &moveX, &moveY) == 3)
+		else if (sscanf(response, "SRV_RES_YOUR_NEW_PLAYER %u %f %f %f %f %f\n",
+						&player_id, &moveX, &moveY,
+						&colorR, &colorG, &colorB) == 6)
 		{
 			printf("Add my player with player_id=%u\n", player_id);
 			pthread_mutex_lock(&game_mutex);
@@ -165,14 +178,23 @@ void* ServerResponseThread(void* /*args*/)
 			{
 				my_player_id = player_id;
 				players[player_id] = new ClientPlayerData();
+				ClientPlayerData* player = players[player_id];
 
-				players[player_id]->VBO_index = next_VBO_index;
-				players[player_id]->player.is_alive = true;
-				players[player_id]->player.posX = moveX;
-				players[player_id]->player.posY = moveY;
-				players[player_id]->player.player_id = player_id;
+				player->VBO_index = next_VBO_index;
+				player->player.is_alive = true;
+				player->player.posX = moveX;
+				player->player.posY = moveY;
+				player->player.colorR = colorR;
+				player->player.colorG = colorG;
+				player->player.colorB = colorB;
+				player->player.player_id = player_id;
 
-				player_vertex_data[next_VBO_index] = glm::vec2(moveX, moveY);
+				const int index = player->VBO_index * kFloatsPerPlayer;
+				player_vertex_data[index] = moveX;
+				player_vertex_data[index+1] = moveY;
+				player_vertex_data[index+2] = colorR;
+				player_vertex_data[index+3] = colorG;
+				player_vertex_data[index+4] = colorB;
 				should_buffer_data.store(true);
 
 				next_VBO_index++;
@@ -276,13 +298,11 @@ int main(int argc, char **argv)
 	// Initialize shader
 	cubeShader = new Shaders::ShaderWrapper("shaders|cube_shader", Shaders::SHADERS_VGF);
 	cubeShader->Activate();
-	//glm::vec4 cubeData(0.0f, 0.0f, 0.2f, 0.2f);
-	//cubeShader->SetUniform("cubeDataUniform", const_cast<glm::vec4*>(&cubeData));
 	cubeShader->Deactivate();
 
 
 	// Initialize player cube
-	player_vertex_data = new glm::vec2[GameSettings::kMaxPlayers];
+	//player_vertex_data = new GLfloat[GameSettings::kMaxPlayers * kFloatsPerPlayer];
 
 	glGenVertexArrays(1, &VAO);
 	glBindVertexArray(VAO);
@@ -290,17 +310,23 @@ int main(int argc, char **argv)
     glGenBuffers(1, &VBO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
 
-	for (int i = 0; i < GameSettings::kMaxPlayers; i++)
-	{
-		player_vertex_data[i] = glm::vec2(0.0f, 0.0f);
-	}
+	// for (int i = 0; i < GameSettings::kMaxPlayers; i++)
+	// {
+	// 	player_vertex_data[i] = 0.0f;
+	// }
 
-    glBufferData(GL_ARRAY_BUFFER, sizeof(glm::vec2) * GameSettings::kMaxPlayers,
+    glBufferData(GL_ARRAY_BUFFER,
+				 sizeof(GLfloat) * GameSettings::kMaxPlayers * kFloatsPerPlayer,
 				 player_vertex_data, GL_DYNAMIC_DRAW);
 
-    // position and size, packed together in a vec4 attribute
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(glm::vec2), (GLvoid*)0);
+    // position
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(GLfloat)*kFloatsPerPlayer,
+						  (GLvoid*)0);
     glEnableVertexAttribArray(0);
+	// color
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(GLfloat)*kFloatsPerPlayer,
+						  (GLvoid*)(sizeof(GLfloat)*2));
+    glEnableVertexAttribArray(1);
 
 	glBindVertexArray(0);
 
@@ -334,9 +360,15 @@ int main(int argc, char **argv)
 				should_buffer_data.store(false); // TODO: race condition, use counter!
 
 				printf("Buffering data:\n");
-				for (int i = 0; i < GameSettings::kMaxPlayers; i++)
+				const int max_i = GameSettings::kMaxPlayers * kFloatsPerPlayer;
+				for (int i = 0; i < max_i; i += 5)
 				{
-					printf("(%f, %f)\n", player_vertex_data[i].x, player_vertex_data[i].y);
+					printf("(%f, %f, %f, %f, %f)\n",
+						   player_vertex_data[i],
+						   player_vertex_data[i+1],
+						   player_vertex_data[i+2],
+						   player_vertex_data[i+3],
+						   player_vertex_data[i+4]);
 				}
 
 				glBindVertexArray(VAO);
@@ -346,13 +378,19 @@ int main(int argc, char **argv)
 				// glBufferSubData(target buffer object type, offset in bytes,
 				//                 size in bytes, pointer to data);
 				glBufferSubData(GL_ARRAY_BUFFER, 0,
-								sizeof(glm::vec2) * GameSettings::kMaxPlayers,
+								sizeof(GLfloat) * GameSettings::kMaxPlayers * GameSettings::kMaxPlayers,
 								player_vertex_data);
 
-				// position and size, packed together in a vec4 attribute
-				glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(glm::vec2),
-				                      (GLvoid*)0);
+				// position
+				glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE,
+									  sizeof(GLfloat)*kFloatsPerPlayer,
+									  (GLvoid*)0);
 				glEnableVertexAttribArray(0);
+				// color
+				glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE,
+									  sizeof(GLfloat)*kFloatsPerPlayer,
+									  (GLvoid*)(sizeof(GLfloat)*2));
+				glEnableVertexAttribArray(1);
 
 				glBindVertexArray(0);
 			}
@@ -376,7 +414,7 @@ int main(int argc, char **argv)
 
 	glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);
-	delete player_vertex_data;
+	//delete player_vertex_data;
 	delete cubeShader;
 	delete window;
     Close(clientfd);

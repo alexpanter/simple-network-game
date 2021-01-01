@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cassert>
+#include <random>
 
 
 Game::Game()
@@ -69,6 +70,13 @@ bool Game::AddPlayer(Player* player)
 		player->posX = 0.0f;
 		player->posY = 0.0f;
 	}
+
+	// setting player color
+	srand(time(NULL));
+	player->colorR = ((float)(rand() % 256)) / 256.0f;
+	player->colorG = ((float)(rand() % 256)) / 256.0f;
+	player->colorB = ((float)(rand() % 256)) / 256.0f;
+
 	return true;
 }
 

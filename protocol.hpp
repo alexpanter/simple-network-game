@@ -45,8 +45,10 @@ namespace Protocol
 	}
 
 	void CreateYourNewPlayerResponse(char dest[kMaxMessageLength],
-								  PlayerId player_id, float posX, float posY)
+									 PlayerId player_id, float posX, float posY,
+									 float colorR, float colorG, float colorB)
 	{
-		sprintf(dest, "SRV_RES_YOUR_NEW_PLAYER %u %f %f\n", player_id, posX, posY);
+		sprintf(dest, "SRV_RES_YOUR_NEW_PLAYER %u %f %f %f %f %f\n",
+				player_id, posX, posY, colorR, colorG, colorB);
 	}
 }

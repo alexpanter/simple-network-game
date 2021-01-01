@@ -137,7 +137,10 @@ void* ClientReceiveThread(void* clientPtr)
 	pthread_mutex_lock(&client->client_mutex);
 	Protocol::CreateYourNewPlayerResponse(buf, client->client_player.player_id,
 										  client->client_player.posX,
-										  client->client_player.posY);
+										  client->client_player.posY,
+										  client->client_player.colorR,
+										  client->client_player.colorG,
+										  client->client_player.colorB);
 	auto new_data = std::make_shared<RespondMessage>(buf);
 	client->message_queue.push(new_data);
 	memset(buf, 0, Protocol::kMaxMessageLength);
